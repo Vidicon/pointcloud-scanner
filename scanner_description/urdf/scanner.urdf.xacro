@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<robot name="pointcloud_scanner" xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:include filename="$(find scanner_description)/urdf/scanner_description.urdf" />
+</robot>

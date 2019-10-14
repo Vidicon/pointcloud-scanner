@@ -24,6 +24,8 @@ ros::Publisher g_pointcloud_pub;
 ros::Publisher g_steps_pub;
 
 int g_currentSteps = 0;
+int g_requestedSteps = 0;
+int g_maxSteps = 0;
 bool scanEnable = false;
 bool liveUpdateEnable = true;
 int g_seq = 0;
@@ -37,15 +39,13 @@ void sendPointCloud()
     pointcloudMsg.header.seq = g_seq++;
     pointcloudMsg.header.stamp = ros::Time::now();
     pointcloudMsg.header.frame_id = "world";
-
     pointcloudMsg.points = g_pointcloudPoints;
-    pointcloudMsg.channels.clear();
     pointcloudMsg.channels.push_back(g_channelIntensity);
 
     g_pointcloud_pub.publish(pointcloudMsg);
 }
 
-geometry_msgs::Point32 angularDistanceToPoint(float angle, float rotation, float distance)
+geometry_msgs::Point32 VectorToCartesianPoint(float angle, float rotation, float distance)
 {
     geometry_msgs::Point32 point;
     point.x = (sin(rotation) * sin(angle) * distance);
@@ -56,25 +56,27 @@ geometry_msgs::Point32 angularDistanceToPoint(float angle, float rotation, float
 
 void addScanToPointcloud(float rotation, sensor_msgs::LaserScan scan)
 {
-    uint16_t pointCount = -1;
-    for (float i = scan.angle_min; i < scan.angle_max; i += scan.angle_increment)
+    float angle = scan.angle_min;
+    int scanPoints = ((scan.angle_max - scan.angle_min) / scan.angle_increment);
+    for(int i = 0; i < scanPoints; i++)
     {
-        pointCount++; // 0 to 359
-
-        if ((scan.ranges[pointCount] < 0.08) || (scan.ranges[pointCount] > 5.0)) // only use scan data more than 10 cm and 5 m. only needed because my lidar node is bad.
-            continue;
-
-        g_pointcloudPoints.push_back(angularDistanceToPoint(i, rotation, scan.ranges[pointCount])); //calculede 3d point from tilt angle, pan angle and distance.
-        g_channelIntensity.values.push_back(scan.intensities[pointCount]);
+        float scanDistance = scan.ranges[i];
+        if (scanDistance < 0.08 || scanDistance > 5.0)
+            continue; // skip if out of range.
+        
+        geometry_msgs::Point32 point = VectorToCartesianPoint(angle, rotation, scanDistance); //Calculate 3d point from tilt, rotation and distance.
+        g_pointcloudPoints.push_back(point); 
+        g_channelIntensity.values.push_back(scan.intensities[i]);
+        angle += scan.angle_increment;
     }
 }
 
-float stepsToAngle(int steps, Microstep microSteping)
+float stepsToRotation(int steps, Microstep microSteping)
 {
     return steps * (STEPPER_ANGLE / microSteping);
 }
 
-void sendSteps(int angle)
+void publishSteps(int angle)
 {
     std_msgs::UInt16 stepsMsg;
     stepsMsg.data = angle;
@@ -89,11 +91,27 @@ void stepsCallback(const std_msgs::UInt16::ConstPtr &msg)
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
 {
     if (!scanEnable)
-    {
         return;
+
+    if(g_currentSteps != g_requestedSteps)
+    {
+        publishSteps(g_requestedSteps);
     }
 
-    addScanToPointcloud(0.0, *scan);
+    float rotation = stepsToRotation(g_currentSteps,QUARTER);
+    addScanToPointcloud(rotation, *scan);
+
+    if(g_requestedSteps == g_maxSteps) // scan done
+    {
+        scanEnable = false;
+        g_requestedSteps = 0;
+    }
+    else
+    {
+        g_requestedSteps++;
+    }
+    
+
     if (liveUpdateEnable)
         sendPointCloud();
 }
