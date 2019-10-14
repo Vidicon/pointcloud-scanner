@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+    <include file="$(find scanner_description)/launch/description.launch" />
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find scanner_description)/config/model_view.rviz" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" />
+    <node name="scan_combiner" pkg="scan_combiner" type="scan_combiner" output="screen"/>
+    <node name="xv_11_lidar" pkg="xv_11_laser_driver" type="neato_laser_publisher" output="screen">
+        <param name="port" value="/dev/ttyUSB0" />
+    </node>
+    <node name="serial_node" pkg="rosserial_python" type="serial_node.py">
+        <param name="port" value="/dev/ttyUSB1"/>
+    </node>
+</launch>
