@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>pointcloud_saver</name>
-  <version>1.0</version>
+  <version>1.0.0</version>
   <description>The pointcloud_saver package saves a 3d pointcloud to a file</description>
 
   <maintainer email="bafenijn@gmail.com">Bram Fenijn (vidicon)</maintainer>

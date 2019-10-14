@@ -8,6 +8,7 @@
 #include "std_msgs/UInt16.h"
 #include "std_srvs/Trigger.h"
 #include "std_srvs/Empty.h"
+#include "sensor_msgs/JointState.h"
 
 #define STEPPER_ANGLE 1.8
 
@@ -22,6 +23,7 @@ enum Microstep
 
 ros::Publisher g_pointcloud_pub;
 ros::Publisher g_steps_pub;
+ros::Publisher g_jointstate_pub;
 
 int g_currentSteps = 0;
 int g_requestedSteps = 0;
@@ -38,8 +40,9 @@ void sendPointCloud()
     sensor_msgs::PointCloud pointcloudMsg;
     pointcloudMsg.header.seq = g_seq++;
     pointcloudMsg.header.stamp = ros::Time::now();
-    pointcloudMsg.header.frame_id = "world";
+    pointcloudMsg.header.frame_id = "pointcloud";
     pointcloudMsg.points = g_pointcloudPoints;
+    g_channelIntensity.name = "intensity";
     pointcloudMsg.channels.push_back(g_channelIntensity);
 
     g_pointcloud_pub.publish(pointcloudMsg);
@@ -61,19 +64,19 @@ void addScanToPointcloud(float rotation, sensor_msgs::LaserScan scan)
     for(int i = 0; i < scanPoints; i++)
     {
         float scanDistance = scan.ranges[i];
-        if (scanDistance < 0.08 || scanDistance > 5.0)
-            continue; // skip if out of range.
-        
-        geometry_msgs::Point32 point = VectorToCartesianPoint(angle, rotation, scanDistance); //Calculate 3d point from tilt, rotation and distance.
+        // if (scanDistance < 0.08 || scanDistance > 5.0)
+            // continue; // skip if out of range.
+        //ROS_INFO("angle: %f min: %f inc: %f",angle,scan.angle_min,scan.angle_increment);
+        geometry_msgs::Point32 point = VectorToCartesianPoint(angle, -rotation, scanDistance); //Calculate 3d point from tilt, rotation and distance.
         g_pointcloudPoints.push_back(point); 
         g_channelIntensity.values.push_back(scan.intensities[i]);
-        angle += scan.angle_increment;
+        angle = angle + scan.angle_increment;
     }
 }
 
 float stepsToRotation(int steps, Microstep microSteping)
 {
-    return steps * (STEPPER_ANGLE / microSteping);
+    return ((float)steps * ((float) STEPPER_ANGLE * 0.0174533/(float) microSteping));
 }
 
 void publishSteps(int angle)
@@ -83,19 +86,32 @@ void publishSteps(int angle)
     g_steps_pub.publish(stepsMsg);
 }
 
+void publishJointState(float angle)
+{
+    sensor_msgs::JointState state;
+    state.header.stamp = ros::Time::now();
+    state.name.push_back("head_joint");
+    state.position.push_back(angle);
+    g_jointstate_pub.publish(state);
+}
+
 void stepsCallback(const std_msgs::UInt16::ConstPtr &msg)
 {
     g_currentSteps = msg->data;
+    
 }
 
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
 {
     if (!scanEnable)
+    {
         return;
-
+    }
+    
     if(g_currentSteps != g_requestedSteps)
     {
         publishSteps(g_requestedSteps);
+        return;
     }
 
     float rotation = stepsToRotation(g_currentSteps,QUARTER);
@@ -145,7 +161,18 @@ int main(int argc, char **argv)
     ros::Subscriber scanSubscriber = n.subscribe("scan", 1000, scanCallback);
     g_pointcloud_pub = n.advertise<sensor_msgs::PointCloud>("pointcloud", 1000);
     g_steps_pub = n.advertise<std_msgs::UInt16>("steps", 1000);
-    ros::Subscriber stepsSubscriber = n.subscribe("currentSteps", 1000, stepsCallback);
-    ros::ServiceServer service = n.advertiseService("scan/start", ScanStart);
-    ros::ServiceServer service = n.advertiseService("scan/pub", ScanPub);
+    g_jointstate_pub = n.advertise<sensor_msgs::JointState>("joint_states", 1000);
+    ros::Subscriber stepsSubscriber = n.subscribe("trueSteps", 1000, stepsCallback);
+    ros::ServiceServer serviceStart = n.advertiseService("scan/start", ScanStart);
+    ros::ServiceServer servicePub = n.advertiseService("scan/pub", ScanPub);
+
+
+    g_maxSteps = 400;
+    ros::Rate loop_rate(10);
+    while (ros::ok())
+    {
+        publishJointState(stepsToRotation(g_currentSteps,QUARTER));
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
 }
